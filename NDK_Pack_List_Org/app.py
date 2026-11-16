@@ -290,10 +290,16 @@ def upload():
 
     try:
         orders = process_packing_pdf(save_path, session_id)
+        if not orders:
+            flash("No orders found in this PDF. Please upload a WooCommerce packing list.")
+            return redirect(url_for("index"))
         save_session_data(session_id, orders)
         return redirect(url_for("packing", session_id=session_id))
     except Exception as e:
-        flash(f"Error processing PDF: {e}")
+        import traceback
+        tb = traceback.format_exc()
+        print("UPLOAD ERROR:", tb, flush=True)
+        flash(f"Error processing PDF: {type(e).__name__}: {e}")
         return redirect(url_for("index"))
 
 
@@ -301,14 +307,40 @@ def upload():
 def packing(session_id):
     data = load_session_data(session_id)
     if not data:
-        flash("Session not found")
+        flash("Session not found. Please upload the packing list again.")
         return redirect(url_for("index"))
-    return render_template(
-        "packing.html",
-        session_id=session_id,
-        orders=data["orders"],
-        img_base=f"/static/fish_images/{session_id}",
-    )
+    orders = data.get("orders") or []
+    # Ensure every item has required fields (defensive for template)
+    for order in orders:
+        order.setdefault("order_id", "")
+        order.setdefault("address", "")
+        order.setdefault("method", "")
+        order.setdefault("customer_name", "Unknown")
+        for item in order.get("items") or []:
+            item.setdefault("sku", "")
+            item.setdefault("product", "Fish")
+            item.setdefault("qty", "1")
+            item.setdefault("actual_fish", 1)
+            item.setdefault("size_inches", None)
+            item.setdefault("img", None)
+            item.setdefault("location", "POND / PACK")
+            if not isinstance(item.get("issues"), dict):
+                item["issues"] = {"NIT": False, "Color Change": False, "Sores": False}
+            else:
+                for k in ("NIT", "Color Change", "Sores"):
+                    item["issues"].setdefault(k, False)
+    try:
+        return render_template(
+            "packing.html",
+            session_id=session_id,
+            orders=orders,
+            img_base=f"/static/fish_images/{session_id}",
+        )
+    except Exception as e:
+        import traceback
+        print("PACKING PAGE ERROR:", traceback.format_exc(), flush=True)
+        flash(f"Error displaying packing list: {e}")
+        return redirect(url_for("index"))
 
 
 @app.route("/api/issue", methods=["POST"])
